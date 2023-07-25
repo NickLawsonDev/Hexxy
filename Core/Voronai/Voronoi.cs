@@ -5,9 +5,9 @@ namespace Hexxy.Core.Voronai;
 
 public static class Voronoi
 {
-    public static List<Center> Centers { get; set; } = new List<Center>();
-    public static List<Corner> Corners { get; set; } = new List<Corner>();
-    public static List<Edge> Edges { get; set; } = new List<Edge>();
+    public static List<Center> Centers { get; set; } = new();
+    public static List<Corner> Corners { get; set; } = new();
+    public static List<Edge> Edges { get; set; } = new();
 
     public static void BuildGraph(List<Vector2> points)
     {
@@ -52,13 +52,6 @@ public static class Voronoi
                 AddToCenterList(newEdge.D1.Neighbors, newEdge.D0);
             }
 
-            // Corners point to corners
-            if (newEdge.V0 != null && newEdge.V1 != null)
-            {
-                AddToCornerList(newEdge.V0.Adjacent, newEdge.V1);
-                AddToCornerList(newEdge.V1.Adjacent, newEdge.V0);
-            }
-
             // Centers point to corners
             if (newEdge.D0 != null)
             {
@@ -87,27 +80,44 @@ public static class Voronoi
         }
     }
 
+    private static Dictionary<float, List<Corner>> _cornersMap { get; set; } = new();
     private static Corner MakeCorner(Vector2 point)
     {
-        for (var bucket = point.X - 1; bucket <= point.X + 1; bucket++)
+        if (point == Vector2.Zero) 
+			return null;
+
+        var bucket = 0;
+        for (bucket = (int)point.X - 1; bucket <= point.X + 1; bucket++)
         {
-            foreach (var c in Corners)
+            _cornersMap.TryGetValue(bucket, out var cornermap);
+            cornermap ??= new List<Corner>();
+            foreach (var c in cornermap)
             {
                 var dx = point.X - c.Point.X;
                 var dy = point.Y - c.Point.Y;
+                var f = dx * dx;
+                var d = dy * dy;
                 if (dx * dx + dy * dy < 1e-6) return c;
             }
         }
+
+        bucket = (int)point.X;
+        if (_cornersMap.Count <= bucket || !_cornersMap.TryGetValue(bucket, out _)) 
+            _cornersMap[bucket] = new List<Corner>();
 
         var newCorner = new Corner()
         {
             Index = Corners.Count,
             Point = point,
             IsBorder = point.X == 0 || point.X == Global.WorldSizeWidth
-                        || point.Y == 0 || point.Y == Global.WorldSizeHeight
+                        || point.Y == 0 || point.Y == Global.WorldSizeHeight,
+            IsWater = point.X == 0 || point.X == Global.WorldSizeWidth
+                        || point.Y == 0 || point.Y == Global.WorldSizeHeight,
+            Type = TerrainType.Ocean
         };
         Corners.Add(newCorner);
-
+        _cornersMap.TryGetValue(bucket, out var cc);
+        cc.Add(newCorner);
         return newCorner;
     }
 

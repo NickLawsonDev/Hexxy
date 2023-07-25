@@ -12,7 +12,7 @@ public class Hex
     public int Column { get; private set; }
     public int Row { get; private set; }
     public Texture2D Texture { get; set; }
-    public TerrainType Type { get; set; } = TerrainType.Water;
+    public TerrainType Type { get; set; } = TerrainType.Ocean;
     public Dictionary<int, (int, int)> Neighbors { get; set; } = new Dictionary<int, (int, int)>();
     public float X { get; set; } = 0f;
     public float Y { get; set; } = 0f;

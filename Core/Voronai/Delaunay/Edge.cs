@@ -76,7 +76,8 @@ namespace csDelaunay
 		public LineSegment VoronoiEdge()
 		{
 			if (!Visible()) return new LineSegment(Vector2.Zero, Vector2.Zero);
-			return new(clippedVertices[LR.LEFT], clippedVertices[LR.RIGHT]);
+			var t = new LineSegment(clippedVertices[LR.LEFT], clippedVertices[LR.RIGHT]);
+			return t;
 		}
 
 		public static List<Edge> SelectEdgesForSitePoint(Vector2 coord, List<Edge> edgesToTest) {

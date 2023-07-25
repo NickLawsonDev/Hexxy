@@ -20,6 +20,7 @@ public class World
     public float[,] TemperatureMap { get; set; }
     public float[,] MoistureMap { get; set; }
     private ContentManager _content;
+    public float LakeThreshold { get; set; } = 0.3f;
 
     public void GenerateWorld(ContentManager content)
     {
@@ -43,28 +44,214 @@ public class World
             }
         }
 
-        var points = Hexs.Select(x => new Vector2(x.X, x.Y)).ToList();
+        var points = GenerateRandom(Global.WorldSizeWidth * Global.WorldSizeHeight, Global.WorldSizeWidth);
         Voronoi.BuildGraph(points);
         var g = Voronoi.Corners;
         var h = Voronoi.Centers;
         var j = Voronoi.Edges;
 
-        foreach(var hex in Hexs)
-        {
-            var v = HexxyMathHelper.FindClosest(new(hex.X, hex.Y), h.Select(x => x.Point).ToList());
+        AssignCornerElevation();
+        AssignOceanCoastAndLand();
+        RedistributeElevations();
+        foreach (var corner in Voronoi.Corners) if (corner.Type == TerrainType.Ocean || corner.IsCoast) corner.Elevation = 0;
+        AssignPolygonElevations();
 
-            var u = HexxyMathHelper.NearlyEqual(h.First().Point.X, v.X) && HexxyMathHelper.NearlyEqual(h.First().Point.Y, v.Y);
-            
-            if (h.First(x => HexxyMathHelper.NearlyEqual(x.Point.X, v.X) && HexxyMathHelper.NearlyEqual(x.Point.Y, v.Y)).IsBorder)
+        foreach (var hex in Hexs)
+        {
+            var closest = FindClosestCenter(new(hex.X, hex.Y), Voronoi.Centers);
+            if (closest.IsCoast)
             {
-                hex.Type = TerrainType.Dirt;
-                hex.Texture = _content.Load<Texture2D>("tiles/Dirt");
+                hex.Type = TerrainType.Coast;
+                hex.Texture = content.Load<Texture2D>("tiles/Sand");
+            }
+            else if (closest.Type == TerrainType.Ocean && closest.IsWater)
+            {
+                hex.Type = TerrainType.Ocean;
+                hex.Texture = content.Load<Texture2D>("tiles/Water");
+            }
+            else if (closest.Type != TerrainType.Ocean && closest.IsWater)
+            {
+                hex.Type = TerrainType.Lake;
+                hex.Texture = content.Load<Texture2D>("tiles/Water");
             }
             else
             {
-                hex.Type = TerrainType.Water;
-                hex.Texture = _content.Load<Texture2D>("tiles/Water");
+                hex.Type = TerrainType.Grass;
+                hex.Texture = content.Load<Texture2D>("tiles/Grass");
             }
+        }
+    }
+
+    private static Center FindClosestCenter(Vector2 point, List<Center> centers)
+    {
+        var closest = new Center();
+        closest.Point = Vector2.Zero;
+        var closestDistance = float.MaxValue;
+        foreach (var center in centers)
+        {
+            var position = center.Point;
+            var distance = Vector2.DistanceSquared(position, point);
+            if (closest.Point == Vector2.Zero || distance < closestDistance)
+            {
+                closest = center;
+                closestDistance = distance;
+            }
+        }
+
+        return closest;
+    }
+
+    private void AssignCornerElevation()
+    {
+        var queue = new Queue<Corner>();
+        var random = new Random();
+        foreach (var q in Voronoi.Corners)
+        {
+            if (q.IsBorder)
+            {
+                q.Elevation = 0f;
+                queue.Enqueue(q);
+            }
+            else q.Elevation = float.MaxValue;
+        }
+
+        while (queue.Count > 0)
+        {
+            var q = queue.Dequeue();
+
+            foreach (var s in q.Adjacent)
+            {
+                var newElevation = 0.01f + q.Elevation;
+                if (!q.IsWater && !s.IsWater)
+                {
+                    newElevation += 1;
+                    newElevation += random.NextFloat();
+                }
+
+                if (newElevation < s.Elevation)
+                {
+                    s.Elevation = newElevation;
+                    queue.Enqueue(s);
+                }
+            }
+        }
+    }
+
+    public static List<Vector2> GenerateRandom(int numberOfPoints, int size, int seed = 0)
+    {
+        var random = seed == 0 ? new Random() : new Random(seed);
+        var points = new List<Vector2>();
+
+        for (var i = 0; i < numberOfPoints; i++)
+        {
+            var p = new Vector2(random.NextFloatRange(0, size),
+                            random.NextFloatRange(0, size));
+            points.Add(p);
+        }
+        return points;
+
+    }
+    private void AssignOceanCoastAndLand()
+    {
+        var queue = new Queue<Center>();
+        var water = 0;
+        foreach (var center in Voronoi.Centers)
+        {
+            water = 0;
+            foreach (var corner in center.Corners)
+            {
+                if (corner.IsBorder)
+                {
+                    center.IsBorder = true;
+                    center.Type = TerrainType.Ocean;
+                    corner.IsWater = true;
+                    queue.Enqueue(center);
+                }
+                if (corner.IsWater) water += 1;
+            }
+            center.IsWater = center.IsWater || water >= center.Corners.Count * LakeThreshold;
+        }
+
+        while (queue.Count > 0)
+        {
+            var center = queue.Dequeue();
+
+            foreach (var neighbor in center.Neighbors)
+            {
+                if (neighbor.IsWater && neighbor.Type != TerrainType.Ocean)
+                {
+                    neighbor.Type = TerrainType.Ocean;
+                    queue.Enqueue(neighbor);
+                }
+            }
+        }
+
+        var ocean = 0;
+        var land = 0;
+
+        foreach (var center in Voronoi.Centers)
+        {
+            ocean = 0;
+            land = 0;
+
+            foreach (var neighbor in center.Neighbors)
+            {
+                ocean += neighbor.Type == TerrainType.Ocean ? 1 : 0;
+                land += !neighbor.IsWater ? 1 : 0;
+            }
+            center.IsCoast = ocean > 0 && land > 0;
+        }
+
+        foreach (var corner in Voronoi.Corners)
+        {
+            ocean = 0;
+			land = 0;
+
+            foreach (var touch in corner.Touches)
+            {
+                ocean += touch.Type == TerrainType.Ocean ? 1 : 0;
+                land += !touch.IsWater ? 1 : 0;
+            }
+
+            var isOcean = ocean == corner.Touches.Count;
+            corner.IsCoast = ocean > 0 && land > 0;
+            corner.IsWater = corner.IsBorder || (land != corner.Touches.Count && !corner.IsCoast);
+            if (corner.IsWater && isOcean) corner.Type = TerrainType.Ocean;
+            if (corner.IsCoast) corner.Type = TerrainType.Coast;
+            if (corner.IsWater && !isOcean) corner.Type = TerrainType.Lake;
+        }
+    }
+
+    private static void RedistributeElevations()
+    {
+        var scaleFactor = 1.1f;
+        Voronoi.Corners = Voronoi.Corners.OrderByDescending(x => x.Elevation).ToList();
+        var locations = LandCorners();
+
+        for (var i = 0; i < locations.Count(); i++)
+        {
+            var y = i / Voronoi.Corners.Count;
+            var x = MathF.Sqrt(scaleFactor) - MathF.Sqrt(scaleFactor * (1 - y));
+            if (x > 1) x = 1;
+            Voronoi.Corners[i].Elevation = x;
+        }
+    }
+
+    private static IEnumerable<Corner> LandCorners()
+    {
+        return Voronoi.Corners.Where(x => x.Type != TerrainType.Ocean && !x.IsCoast);
+    }
+
+    private static void AssignPolygonElevations()
+    {
+        var elevation = 0f;
+        foreach (var center in Voronoi.Centers)
+        {
+            foreach (var corner in center.Corners)
+            {
+                elevation += corner.Elevation;
+            }
+            center.Elevation = elevation / center.Corners.Count;
         }
     }
 
@@ -79,7 +266,7 @@ public class World
         {
             return rand.Next(0, 100) switch
             {
-                _ => (_content.Load<Texture2D>("tiles/Water"), TerrainType.Water)
+                _ => (_content.Load<Texture2D>("tiles/Water"), TerrainType.Ocean)
             };
         }
         //Beach

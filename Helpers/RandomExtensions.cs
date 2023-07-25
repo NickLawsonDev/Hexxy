@@ -8,4 +8,9 @@ public static class RandomExtensions
     {
         return (float)random.NextDouble() * (maximum - minimum) + minimum;
     }
+
+    public static float NextFloat(this Random random)
+    {
+        return (float)random.NextDouble();
+    }
 }

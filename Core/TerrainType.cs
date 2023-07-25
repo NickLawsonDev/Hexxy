@@ -2,7 +2,7 @@ namespace Hexxy.Core;
 
 public enum TerrainType
 {
-    Water = 0,
+    Ocean = 0,
     Dirt = 1,
     Grass = 2,
     Mountain = 3,
